@@ -347,7 +347,7 @@ export async function verifyNostrAuth(signedEvent: {
     }
 
     // Verify signature using nostr-tools
-    const { verifyEvent } = await import('nostr-tools/pure')
+    const { verifyEvent } = await import('nostr-tools')
     const isValid = verifyEvent(signedEvent as any)
     if (!isValid) {
       return { success: false, error: 'Invalid signature' }

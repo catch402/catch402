@@ -44,6 +44,31 @@
             }
         }
     },
+    "functions": [
+        {
+            "$id": "nostr-auth",
+            "name": "nostr-auth",
+            "runtime": "node-22",
+            "path": "functions/nostr-auth",
+            "entrypoint": "src/main.js",
+            "execute": [],
+            "enabled": true,
+            "logging": true,
+            "events": [],
+            "schedule": "",
+            "timeout": 15,
+            "commands": "npm install",
+            "scopes": [
+                "users.read",
+                "users.write",
+                "databases.read",
+                "databases.write"
+            ],
+            "buildSpecification": "s-0.5vcpu-512mb",
+            "runtimeSpecification": "s-0.5vcpu-512mb",
+            "deploymentRetention": 0
+        }
+    ],
     "tablesDB": [
         {
             "$id": "6a4d40e8001f57c90358",

@@ -1,12 +1,17 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { SidebarProvider } from '@/contexts/SidebarContext'
+import { AuthProvider } from '@/contexts/AuthContext'
+import { WalletProvider } from '@/contexts/WalletContext'
+import { TransactionProvider } from '@/contexts/TransactionContext'
+import { PaymentRequestProvider } from '@/contexts/PaymentRequestContext'
+import { ExchangeRateProvider } from '@/contexts/ExchangeRateContext'
+import { CapitalProvider } from '@/contexts/CapitalContext'
 import LayoutClient from './layoutClient'
 
 export const metadata: Metadata = {
   title: 'Catch402 | Payment Telemetry Router',
   description: 'Non-custodial serverless transaction telemetry router for the open web.',
-  keywords: ['payment', 'telemetry', 'nostr', 'bitcoin', 'http 402', 'x402'],
 }
 
 export default function RootLayout({
@@ -25,9 +30,21 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased font-sans">
-        <SidebarProvider>
-          <LayoutClient>{children}</LayoutClient>
-        </SidebarProvider>
+        <AuthProvider>
+          <ExchangeRateProvider>
+            <WalletProvider>
+              <TransactionProvider>
+                <PaymentRequestProvider>
+                  <CapitalProvider>
+                    <SidebarProvider>
+                      <LayoutClient>{children}</LayoutClient>
+                    </SidebarProvider>
+                  </CapitalProvider>
+                </PaymentRequestProvider>
+              </TransactionProvider>
+            </WalletProvider>
+          </ExchangeRateProvider>
+        </AuthProvider>
       </body>
     </html>
   )

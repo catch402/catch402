@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mail, Key, Fingerprint, Github, Chrome, Zap, ArrowRight, Loader2, Check, AlertCircle } from 'lucide-react'
+import { Mail, GitBranch, Globe, Zap, ArrowRight, Loader2, Check, AlertCircle, Fingerprint } from 'lucide-react'
 import { sendEmailOtp, verifyEmailOtp, getOAuthUrl, generatePasskeyAuthOptions, verifyPasskeyAuth, verifyNostrAuth } from '@/lib/actions/auth'
 import { startAuthentication } from '@simplewebauthn/browser'
 import { getAccount, getClient } from '@/lib/appwrite/browser'
@@ -148,7 +148,7 @@ export default function AuthPage() {
     {
       id: 'github',
       label: 'Continue with GitHub',
-      icon: Github,
+      icon: GitBranch,
       color: 'text-purple-400',
       bg: 'bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30',
       action: () => handleOAuth('github'),
@@ -156,7 +156,7 @@ export default function AuthPage() {
     {
       id: 'google',
       label: 'Continue with Google',
-      icon: Chrome,
+      icon: Globe,
       color: 'text-emerald-400',
       bg: 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30',
       action: () => handleOAuth('google'),
