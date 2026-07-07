@@ -43,5 +43,12 @@
                 "mockNumbers": []
             }
         }
-    }
+    },
+    "tablesDB": [
+        {
+            "$id": "6a4d40e8001f57c90358",
+            "name": "catch402",
+            "enabled": true
+        }
+    ]
 }

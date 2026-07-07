@@ -1,469 +1,330 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
-import { 
-  Plus, 
-  RefreshCw, 
-  Terminal, 
-  Activity,
-  Cpu,
-  Key,
-  Radio,
-  Database,
-  ExternalLink,
-  Shield,
-  Layers,
-  ArrowRight,
-  TrendingUp,
-  CheckCircle2,
-  AlertCircle
-} from 'lucide-react'
+import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
+import {
+  Activity,
+  Plus,
+  Eye,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Copy,
+  Check,
+  MoreVertical,
+  TrendingUp,
+  Zap,
+  Radio,
+  ChevronRight,
+} from 'lucide-react'
+import { listRouteWatches, listPaymentEvents, createRouteWatch, updateRouteWatchStatus, deleteRouteWatch } from '@/lib/actions/telemetry'
+import { getAccount } from '@/lib/appwrite/browser'
 
-interface Watch {
-  id: string
-  xpubIndex: number
-  derivedAddress: string
-  resourcePath: string
-  amountRequired: string
-  network: string
-  status: 'pending' | 'verified'
-  txHash?: string
+const STATUS_CONFIG = {
+  active: { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', icon: CheckCircle2, dot: 'bg-emerald-400' },
+  paused: { color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', icon: Clock, dot: 'bg-amber-400' },
+  expired: { color: 'text-neutral-500', bg: 'bg-neutral-500/10 border-neutral-500/20', icon: XCircle, dot: 'bg-neutral-600' },
+}
+
+const EVENT_STATUS_CONFIG = {
+  pending: { color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' },
+  verified: { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+  expired: { color: 'text-neutral-500', bg: 'bg-neutral-500/10 border-neutral-500/20' },
+  failed: { color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
+}
+
+function StatCard({ label, value, icon: Icon, accent = false }: { label: string; value: string | number; icon: any; accent?: boolean }) {
+  return (
+    <div className={`p-4 rounded-2xl border ${accent ? 'bg-[#ff8800]/5 border-[#ff8800]/20' : 'bg-[#141211] border-[#23211F]'} space-y-2`}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-neutral-500 font-medium uppercase tracking-widest">{label}</p>
+        <div className={`p-1.5 rounded-lg ${accent ? 'bg-[#ff8800]/10' : 'bg-[#1E1B19]'}`}>
+          <Icon className={`h-3.5 w-3.5 ${accent ? 'text-[#ff8800]' : 'text-neutral-500'}`} />
+        </div>
+      </div>
+      <p className={`text-2xl font-bold ${accent ? 'text-[#ff8800]' : 'text-white'}`}>{value}</p>
+    </div>
+  )
 }
 
 export default function HomePage() {
-  const { account, userProfile, isAuthenticated, isLoading, refreshProfile } = useAuth()
   const router = useRouter()
-  
-  // Active state for watches
-  const [watches, setWatches] = useState<Watch[]>([
-    {
-      id: 'watch-1',
-      xpubIndex: 0,
-      derivedAddress: '0x3aE19A62b66D807567702f2Cc8C1cf262274b7F2',
-      resourcePath: '/api/v1/compute-vision',
-      amountRequired: '0.05',
-      network: 'base-mainnet',
-      status: 'verified',
-      txHash: '0x8f7c6b5a4d3c2b1a09876543210fedcba9876543210fedcba9876543210fedcb'
-    },
-    {
-      id: 'watch-2',
-      xpubIndex: 1,
-      derivedAddress: '0x992B19F4bB19cf2Cc8C1cf2266D807567702f82A',
-      resourcePath: '/api/v1/agent-text-gen',
-      amountRequired: '0.02',
-      network: 'base-mainnet',
-      status: 'pending'
-    }
-  ])
+  const [userId, setUserId] = useState<string | null>(null)
+  const [watches, setWatches] = useState<any[]>([])
+  const [events, setEvents] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [newPath, setNewPath] = useState('')
+  const [newAmount, setNewAmount] = useState('')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
 
-  // Form states for creating a new watch
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [xpubInput, setXpubInput] = useState('xpub661MyMwAqRbcFtxFhs3sQ1YLS17a...')
-  const [derivIndex, setDerivIndex] = useState(2)
-  const [resourcePath, setResourcePath] = useState('/api/v1/analytics')
-  const [amountRequired, setAmountRequired] = useState('0.10')
-  const [network, setNetwork] = useState('base-mainnet')
-
-  // Egress parameters
-  const [webhookUrl, setWebhookUrl] = useState('https://agent-backend.local/api/payment-callback')
-  const [nostrRelays, setNostrRelays] = useState('wss://relay.damus.io\nwss://nos.lol')
-
-  // Interactive playground state
-  const [playgroundPath, setPlaygroundPath] = useState('/api/v1/compute-vision')
-  const [challengeResponse, setChallengeResponse] = useState<any>(null)
-  const [inputTxHash, setInputTxHash] = useState('')
-  const [playgroundStatus, setPlaygroundStatus] = useState<string>('idle')
-
-  // Credits state
-  const [credits, setCredits] = useState(9842)
-  const [npub, setNpub] = useState('npub17fc6879ecd343f1917d1bf69bfbd01e')
-
+  // Get current user
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/')
+    const init = async () => {
+      try {
+        const account = getAccount()
+        const user = await account.get()
+        setUserId(user.$id)
+      } catch {
+        router.push('/auth')
+      }
     }
-  }, [isAuthenticated, isLoading, router])
+    init()
+  }, [router])
 
-  const handleCreateWatch = (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    // Deterministic mock derived address for visualization
-    const derived = '0x' + Array.from({length: 40}, () => Math.floor(Math.random()*16).toString(16)).join('')
-    
-    const newWatch: Watch = {
-      id: `watch-${Date.now()}`,
-      xpubIndex: derivIndex,
-      derivedAddress: derived,
-      resourcePath,
-      amountRequired,
-      network,
-      status: 'pending'
+  // Load data
+  useEffect(() => {
+    if (!userId) return
+
+    const load = async () => {
+      setLoading(true)
+      const [watchResult, eventResult] = await Promise.all([
+        listRouteWatches(userId),
+        listPaymentEvents(userId),
+      ])
+      setWatches(watchResult.watches || [])
+      setEvents(eventResult.events || [])
+      setLoading(false)
     }
 
-    setWatches([newWatch, ...watches])
-    setDerivIndex(derivIndex + 1)
-    setShowAddModal(false)
-    setCredits(prev => Math.max(0, prev - 1)) // 1 credit for watch creation
-  }
+    load()
+  }, [userId])
 
-  const triggerChallengePlayground = () => {
-    const targetWatch = watches.find(w => w.resourcePath === playgroundPath)
-    if (targetWatch) {
-      setChallengeResponse({
-        status: 402,
-        error: "Payment Required",
-        payTo: targetWatch.derivedAddress,
-        maxAmountRequired: targetWatch.amountRequired,
-        asset: "USDC-ERC20",
-        network: targetWatch.network,
-        resource: targetWatch.resourcePath
+  const handleCreateWatch = () => {
+    if (!newPath.trim() || !userId) return
+    startTransition(async () => {
+      const result = await createRouteWatch({
+        userId,
+        resourcePath: newPath.trim(),
+        targetAmount: newAmount ? parseFloat(newAmount) : undefined,
+        currency: 'USDC',
       })
-      setPlaygroundStatus('challenged')
-    } else {
-      setChallengeResponse({ error: "Resource path not watched" })
-      setPlaygroundStatus('error')
-    }
+      if (result.success && result.watch) {
+        setWatches((prev) => [result.watch, ...prev])
+        setNewPath('')
+        setNewAmount('')
+        setShowCreateForm(false)
+      }
+    })
   }
 
-  const submitTransactionPlayground = () => {
-    if (!inputTxHash.startsWith('0x') || inputTxHash.length < 10) {
-      alert('Please enter a valid hex transaction hash')
-      return
-    }
-    setPlaygroundStatus('verifying')
-    
-    setTimeout(() => {
-      // Find and update watch status
-      setWatches(prev => prev.map(w => {
-        if (w.resourcePath === playgroundPath) {
-          return { ...w, status: 'verified', txHash: inputTxHash }
-        }
-        return w
-      }))
-      setPlaygroundStatus('verified')
-      setCredits(prev => Math.max(0, prev - 7)) // 2 for verification + 5 for delivery = 7
-    }, 1500)
+  const handleToggleStatus = (watch: any) => {
+    const newStatus = watch.status === 'active' ? 'paused' : 'active'
+    startTransition(async () => {
+      await updateRouteWatchStatus(watch.$id, newStatus)
+      setWatches((prev) =>
+        prev.map((w) => (w.$id === watch.$id ? { ...w, status: newStatus } : w))
+      )
+    })
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    )
+  const handleDelete = (watch: any) => {
+    startTransition(async () => {
+      await deleteRouteWatch(watch.$id)
+      setWatches((prev) => prev.filter((w) => w.$id !== watch.$id))
+    })
   }
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const activeCount = watches.filter((w) => w.status === 'active').length
+  const verifiedCount = events.filter((e) => e.status === 'verified').length
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8 space-y-8 animate-fade-in text-white">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="max-w-6xl mx-auto px-4 lg:px-6 py-6 space-y-6">
+      {/* Page header */}
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Catch402 Protocol Dashboard</h1>
-          <p className="text-neutral-500 text-sm mt-1">
-            Telemetry Router for serverless machine-to-machine settlements.
-          </p>
+          <h1 className="text-xl font-bold text-white">Dashboard</h1>
+          <p className="text-neutral-500 text-sm mt-0.5">Your route watches and payment telemetry</p>
         </div>
-        
-        {/* Identity & Credits */}
-        <div className="flex flex-wrap gap-4">
-          <div className="px-4 py-2 bg-chrome border border-hairline rounded flex items-center gap-2">
-            <Key className="h-4 w-4 text-primary" />
-            <div className="text-left">
-              <span className="text-[10px] text-neutral-500 block uppercase">Nostr Identity</span>
-              <span className="text-xs font-mono text-neutral-300 font-bold">{npub.slice(0, 12)}...{npub.slice(-8)}</span>
-            </div>
-          </div>
-          
-          <div className="px-4 py-2 bg-chrome border border-hairline rounded flex items-center gap-2">
-            <Database className="h-4 w-4 text-green-400" />
-            <div className="text-left">
-              <span className="text-[10px] text-neutral-500 block uppercase">Compute Credits</span>
-              <span className="text-sm font-bold text-green-400">{credits.toLocaleString()} / 10,000</span>
-            </div>
-          </div>
-        </div>
+        <button
+          onClick={() => setShowCreateForm(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-[#ff8800] hover:brightness-110 text-black font-semibold text-sm rounded-xl transition-all active:scale-[0.97] shadow-md shadow-amber-500/20"
+        >
+          <Plus className="h-4 w-4" />
+          New Watch
+        </button>
       </div>
 
-      {/* Main Grid */}
-      <div className="grid lg:grid-cols-3 gap-8">
-        {/* Left Side: Watches & Telemetry Ingress */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Active Watches" value={activeCount} icon={Activity} accent />
+        <StatCard label="Total Watches" value={watches.length} icon={Eye} />
+        <StatCard label="Verified Events" value={verifiedCount} icon={CheckCircle2} />
+        <StatCard label="Total Events" value={events.length} icon={TrendingUp} />
+      </div>
+
+      {/* Create watch form */}
+      {showCreateForm && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-[#141211] border border-[#23211F] rounded-2xl p-5 space-y-4"
+        >
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
-              <Activity className="h-5 w-5 text-primary animate-pulse" />
-              Active Telemetry Watches
-            </h2>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded flex items-center gap-1.5 hover:bg-primary/90 transition-all"
-            >
-              <Plus className="h-3.5 w-3.5" /> Watch Route
-            </button>
+            <h3 className="font-semibold text-white text-sm">Create Route Watch</h3>
+            <button onClick={() => setShowCreateForm(false)} className="text-neutral-600 hover:text-white text-sm transition-colors">✕</button>
           </div>
-
-          {/* Table Container */}
-          <div className="bg-chrome border border-hairline rounded overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-bedrock border-b border-hairline text-neutral-500 text-[10px] uppercase font-bold tracking-wider">
-                  <th className="p-4">Resource Path</th>
-                  <th className="p-4">Index</th>
-                  <th className="p-4">Derived Address</th>
-                  <th className="p-4">USDC Target</th>
-                  <th className="p-4 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-hairline">
-                {watches.map(w => (
-                  <tr key={w.id} className="hover:bg-focus/35 transition-colors text-xs">
-                    <td className="p-4 font-mono font-bold text-white">{w.resourcePath}</td>
-                    <td className="p-4 text-neutral-400 font-mono">m/44'/60'/0'/0/{w.xpubIndex}</td>
-                    <td className="p-4 text-neutral-400 font-mono">
-                      {w.derivedAddress.slice(0, 8)}...{w.derivedAddress.slice(-6)}
-                    </td>
-                    <td className="p-4 font-bold text-green-400">{w.amountRequired} USDC</td>
-                    <td className="p-4 text-right">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
-                        w.status === 'verified' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 animate-pulse'
-                      }`}>
-                        {w.status === 'verified' ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                        {w.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Right Side: Egress Setup */}
-        <div className="space-y-6">
-          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
-            <Radio className="h-5 w-5 text-primary" />
-            Egress Channels
-          </h2>
-
-          <div className="p-6 bg-chrome border border-hairline rounded space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider block mb-2">
-                Mode A: HTTP Webhook Callback URL
-              </label>
+              <label className="text-xs text-neutral-500 mb-1.5 block">Resource Path</label>
               <input
-                type="text"
-                value={webhookUrl}
-                onChange={(e) => setWebhookUrl(e.target.value)}
-                className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-primary/50 transition-colors"
+                value={newPath}
+                onChange={(e) => setNewPath(e.target.value)}
+                placeholder="/api/v1/data"
+                className="w-full bg-[#0A0908] border border-[#23211F] focus:border-amber-500/50 rounded-xl px-4 py-2.5 text-sm text-white placeholder-neutral-700 outline-none transition-colors font-mono"
               />
             </div>
-
             <div>
-              <label className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider block mb-2">
-                Mode B: Ephemeral Nostr Relays
-              </label>
-              <textarea
-                value={nostrRelays}
-                onChange={(e) => setNostrRelays(e.target.value)}
-                rows={3}
-                className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-primary/50 transition-colors resize-none"
+              <label className="text-xs text-neutral-500 mb-1.5 block">Target Amount (optional)</label>
+              <input
+                value={newAmount}
+                onChange={(e) => setNewAmount(e.target.value)}
+                placeholder="0.00 USDC"
+                type="number"
+                className="w-full bg-[#0A0908] border border-[#23211F] focus:border-amber-500/50 rounded-xl px-4 py-2.5 text-sm text-white placeholder-neutral-700 outline-none transition-colors"
               />
             </div>
-            
+          </div>
+          <div className="flex gap-3">
             <button
-              onClick={() => alert('Egress configurations saved.')}
-              className="w-full px-4 py-2 bg-primary text-white text-xs font-bold rounded hover:bg-primary/90 transition-colors"
+              onClick={handleCreateWatch}
+              disabled={!newPath.trim() || isPending}
+              className="px-5 py-2 bg-[#ff8800] text-black font-semibold text-sm rounded-xl hover:brightness-110 disabled:opacity-50 transition-all active:scale-[0.97]"
             >
-              Update Settings
+              {isPending ? 'Creating…' : 'Create Watch'}
+            </button>
+            <button onClick={() => setShowCreateForm(false)} className="px-5 py-2 border border-[#23211F] text-neutral-400 text-sm rounded-xl hover:text-white hover:bg-[#141211] transition-all">
+              Cancel
             </button>
           </div>
+        </motion.div>
+      )}
+
+      {/* Route Watches table */}
+      <div className="bg-[#141211] border border-[#23211F] rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#23211F]">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-[#ff8800]" />
+            <h2 className="font-semibold text-white text-sm">Route Watches</h2>
+          </div>
+          <span className="text-xs text-neutral-600 bg-[#1E1B19] px-2.5 py-1 rounded-lg">{watches.length} total</span>
         </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="flex items-center gap-3 text-neutral-500">
+              <div className="w-4 h-4 border-2 border-amber-500/40 border-t-amber-500 rounded-full animate-spin" />
+              <span className="text-sm">Loading watches...</span>
+            </div>
+          </div>
+        ) : watches.length === 0 ? (
+          <div className="py-16 text-center">
+            <div className="inline-flex p-4 rounded-2xl bg-[#1E1B19] mb-4">
+              <Activity className="h-6 w-6 text-neutral-600" />
+            </div>
+            <p className="text-neutral-500 text-sm">No route watches yet</p>
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="mt-3 text-[#ff8800] text-sm hover:underline"
+            >
+              Create your first watch
+            </button>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#1E1B19]">
+            {watches.map((watch) => {
+              const cfg = STATUS_CONFIG[watch.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.active
+              const StatusIcon = cfg.icon
+              return (
+                <div key={watch.$id} className="flex items-center gap-4 px-5 py-4 hover:bg-[#0F0E0D] transition-colors group">
+                  <div className="flex-shrink-0">
+                    <span className={`inline-block w-2 h-2 rounded-full ${cfg.dot}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-sm text-white truncate">{watch.resourcePath}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${cfg.bg} ${cfg.color} uppercase`}>
+                        {watch.status}
+                      </span>
+                      {watch.targetAmount && (
+                        <span className="text-xs text-neutral-500">{watch.targetAmount} {watch.currency || 'USDC'}</span>
+                      )}
+                    </div>
+                  </div>
+                  {watch.derivedCoordinates && (
+                    <button
+                      onClick={() => handleCopy(watch.derivedCoordinates, watch.$id)}
+                      className="flex items-center gap-1.5 text-xs text-neutral-600 hover:text-neutral-300 font-mono transition-colors"
+                    >
+                      {copiedId === watch.$id ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      {watch.derivedCoordinates.slice(0, 12)}…
+                    </button>
+                  )}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleToggleStatus(watch)}
+                      className="text-xs text-neutral-500 hover:text-neutral-200 px-3 py-1.5 rounded-lg hover:bg-[#1E1B19] transition-colors"
+                    >
+                      {watch.status === 'active' ? 'Pause' : 'Activate'}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(watch)}
+                      className="text-xs text-red-500 hover:text-red-400 px-3 py-1.5 rounded-lg hover:bg-red-500/5 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Interactive Playground Section */}
-      <section className="border-t border-hairline pt-8">
-        <h2 className="text-lg font-bold tracking-tight flex items-center gap-2 mb-6">
-          <Terminal className="h-5 w-5 text-primary" />
-          x402 Protocol & DVM Emulator
-        </h2>
-
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Challenge Emulator */}
-          <div className="p-6 bg-chrome border border-hairline rounded space-y-4">
-            <h3 className="text-sm font-bold">1. Ingress Request & Challenge</h3>
-            <p className="text-xs text-neutral-400">
-              Select an active watched resource route path to simulate an un-authenticated request challenge response loop.
-            </p>
-            
-            <div className="flex gap-2">
-              <select
-                value={playgroundPath}
-                onChange={(e) => {
-                  setPlaygroundPath(e.target.value)
-                  setChallengeResponse(null)
-                  setPlaygroundStatus('idle')
-                }}
-                className="flex-1 bg-void border border-hairline rounded px-3 py-2 text-xs text-white focus:outline-none"
-              >
-                {watches.map(w => (
-                  <option key={w.id} value={w.resourcePath}>{w.resourcePath}</option>
-                ))}
-              </select>
-              
-              <button
-                onClick={triggerChallengePlayground}
-                className="px-4 py-2 bg-primary text-white text-xs font-bold rounded hover:bg-primary/90 transition-colors flex items-center gap-1"
-              >
-                Trigger Challenge <ArrowRight className="h-3 w-3" />
-              </button>
+      {/* Recent Payment Events */}
+      {events.length > 0 && (
+        <div className="bg-[#141211] border border-[#23211F] rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[#23211F]">
+            <div className="flex items-center gap-2">
+              <Zap className="h-4 w-4 text-[#ff8800]" />
+              <h2 className="font-semibold text-white text-sm">Payment Events</h2>
             </div>
-
-            {challengeResponse && (
-              <pre className="p-4 bg-void border border-hairline rounded text-[11px] text-green-400 overflow-x-auto font-mono">
-                {JSON.stringify(challengeResponse, null, 2)}
-              </pre>
-            )}
+            <span className="text-xs text-neutral-600 bg-[#1E1B19] px-2.5 py-1 rounded-lg">{events.length} total</span>
           </div>
-
-          {/* Verification Simulator */}
-          <div className="p-6 bg-chrome border border-hairline rounded space-y-4">
-            <h3 className="text-sm font-bold">2. Transaction Latching & Block Settlement</h3>
-            <p className="text-xs text-neutral-400">
-              Simulate your autonomous client wallet pushing a transaction hash and verifying blockchain telemetry.
-            </p>
-            
-            <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Enter Transaction Hash (e.g. 0x8f7c6b5a...)"
-                value={inputTxHash}
-                onChange={(e) => setInputTxHash(e.target.value)}
-                disabled={playgroundStatus !== 'challenged'}
-                className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-primary/50 transition-colors disabled:opacity-50"
-              />
-              
-              <button
-                onClick={submitTransactionPlayground}
-                disabled={playgroundStatus !== 'challenged'}
-                className="w-full px-4 py-2 bg-green-500 text-black text-xs font-bold rounded hover:bg-green-400 transition-colors disabled:opacity-50"
-              >
-                {playgroundStatus === 'verifying' ? 'Verifying Block Telemetry...' : 'Latch & Verify Transaction'}
-              </button>
-            </div>
-
-            {playgroundStatus === 'verified' && (
-              <div className="p-4 bg-green-500/10 border border-green-500/20 rounded flex items-center gap-3 text-xs text-green-400">
-                <CheckCircle2 className="h-5 w-5 flex-shrink-0" />
-                <div>
-                  <p className="font-bold">Telemetry Verified successfully!</p>
-                  <p className="text-[10px] text-neutral-400 mt-1">Egress notification dispatched to Webhook and signed as kind: 27235 event to Nostr relays.</p>
+          <div className="divide-y divide-[#1E1B19]">
+            {events.slice(0, 8).map((event) => {
+              const cfg = EVENT_STATUS_CONFIG[event.status as keyof typeof EVENT_STATUS_CONFIG] || EVENT_STATUS_CONFIG.pending
+              return (
+                <div key={event.$id} className="flex items-center gap-4 px-5 py-4 hover:bg-[#0F0E0D] transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono text-sm text-white">#{event.eventId?.slice(0, 8)}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${cfg.bg} ${cfg.color} uppercase`}>
+                        {event.status}
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        {event.amount} {event.currency}
+                      </span>
+                    </div>
+                  </div>
+                  {event.createdAt && (
+                    <span className="text-xs text-neutral-600">
+                      {new Date(event.createdAt).toLocaleDateString()}
+                    </span>
+                  )}
                 </div>
-              </div>
-            )}
+              )
+            })}
           </div>
         </div>
-      </section>
-
-      {/* Register Watch Modal (Conditional Mount Pattern) */}
-      {showAddModal && (
-        <>
-          {/* Backdrop */}
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 transition-opacity duration-300 ease-in-out cursor-default"
-            onClick={() => setShowAddModal(false)}
-          />
-          
-          {/* Modal Container */}
-          <div className="fixed bottom-0 left-0 right-0 max-h-[85vh] md:max-h-[80vh] md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[500px] bg-[#141211] border border-hairline rounded-t-[28px] md:rounded-[16px] z-[100] text-white p-6 md:p-8 flex flex-col gap-6 animate-slide-up overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-white text-lg font-black tracking-tight leading-tight">Watch Route</h3>
-                <p className="text-neutral-500 text-[11px] font-bold mt-1">Register path with xPub address derivation</p>
-              </div>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleCreateWatch} className="space-y-4 text-xs">
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-neutral-500 uppercase font-bold">xPub Key String</label>
-                <input
-                  type="text"
-                  required
-                  value={xpubInput}
-                  onChange={(e) => setXpubInput(e.target.value)}
-                  className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs font-mono text-white focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-neutral-500 uppercase font-bold">Derivation Index</label>
-                  <input
-                    type="number"
-                    required
-                    value={derivIndex}
-                    onChange={(e) => setDerivIndex(Number(e.target.value))}
-                    className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs text-white focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-neutral-500 uppercase font-bold">Network</label>
-                  <select
-                    value={network}
-                    onChange={(e) => setNetwork(e.target.value)}
-                    className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs text-white focus:outline-none"
-                  >
-                    <option value="base-mainnet">base-mainnet</option>
-                    <option value="ethereum-mainnet">ethereum-mainnet</option>
-                    <option value="arbitrum-one">arbitrum-one</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-neutral-500 uppercase font-bold">Resource Path</label>
-                  <input
-                    type="text"
-                    required
-                    value={resourcePath}
-                    onChange={(e) => setResourcePath(e.target.value)}
-                    className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs font-mono text-white focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-neutral-500 uppercase font-bold">Price required (USDC)</label>
-                  <input
-                    type="text"
-                    required
-                    value={amountRequired}
-                    onChange={(e) => setAmountRequired(e.target.value)}
-                    className="w-full bg-void border border-hairline rounded px-3 py-2 text-xs text-white focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-2.5 bg-void border border-hairline text-neutral-400 hover:text-white rounded font-bold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-primary text-white rounded font-bold hover:bg-primary/95 transition-colors"
-                >
-                  Establish Watch
-                </button>
-              </div>
-            </form>
-          </div>
-        </>
       )}
     </div>
   )

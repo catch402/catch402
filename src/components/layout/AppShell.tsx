@@ -11,29 +11,26 @@ interface AppShellProps {
 }
 
 export const AppShell: React.FC<AppShellProps> = ({ children }) => {
-  const { isSidebarOpen, toggleSidebar } = useSidebar()
+  const { isSidebarOpen, toggleSidebar, closeSidebar } = useSidebar()
 
   return (
-    <div className="flex flex-col h-screen bg-void text-white">
-      {/* TopBar */}
-      <TopBar onMenuClick={toggleSidebar} mobile={false} />
+    <div className="flex h-screen bg-[#0A0908] text-white overflow-hidden">
+      {/* Sidebar — manages both desktop and mobile rendering internally */}
+      <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
 
-      {/* Main Layout */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar isOpen={isSidebarOpen} onClose={toggleSidebar} />
+      {/* Right side: header + content */}
+      <div className="flex flex-col flex-1 min-w-0 h-full">
+        <TopBar onMenuClick={toggleSidebar} />
 
-        {/* Main Content Area */}
-        <div className="flex flex-col flex-1 min-w-0 bg-void">
-          <main className="flex-1 overflow-y-auto pb-16 lg:pb-0">
+        {/* Scrollable page content */}
+        <main className="flex-1 overflow-y-auto bg-[#0A0908]">
+          <div className="pb-20 lg:pb-0">
             {children}
-          </main>
-
-          {/* Mobile Bottom Navigation */}
-          <div className="lg:hidden">
-            <BottomNavigation />
           </div>
-        </div>
+        </main>
+
+        {/* Mobile bottom nav — outside main so it doesn't scroll */}
+        <BottomNavigation />
       </div>
     </div>
   )
