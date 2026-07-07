@@ -1,0 +1,13 @@
+{
+  "name": "nostr-auth",
+  "version": "1.0.0",
+  "description": "Appwrite Function: Verifies NIP-98 Nostr signed events and creates custom auth tokens",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node src/main.js"
+  },
+  "dependencies": {
+    "node-appwrite": "^14.0.0",
+    "nostr-tools": "^2.7.0"
+  }
+}

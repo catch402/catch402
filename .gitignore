@@ -45,7 +45,6 @@ next-env.d.ts
 lancerpaybless/
 
 test/
-functions/
 **docs.md
 contracts_pay_morph/
 
@@ -62,3 +61,4 @@ docx/
 *.env*
 # Added by Autocommiter: ensure .docx/
 .docx/
+functions/*/node_modules/
